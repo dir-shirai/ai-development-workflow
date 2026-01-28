@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { GameState, Tetromino } from '@/app/types/tetris';
 import {
   createEmptyBoard,
@@ -155,16 +155,53 @@ export function useTetris() {
     });
   }, []);
 
+  // Store action references for keyboard handler
+  const actionsRef = useRef({ moveLeft, moveRight, moveDown, rotate, hardDrop, togglePause });
+
+  useEffect(() => {
+    actionsRef.current = { moveLeft, moveRight, moveDown, rotate, hardDrop, togglePause };
+  });
+
   // Auto-drop piece
   useEffect(() => {
     if (gameState.gameOver || gameState.isPaused) return;
 
     const intervalId = setInterval(() => {
-      moveDown();
+      setGameState(prev => {
+        if (!prev.currentPiece || prev.gameOver || prev.isPaused) return prev;
+
+        const newY = prev.currentPiece.position.y + 1;
+        if (isValidMove(prev.board, prev.currentPiece, prev.currentPiece.position.x, newY)) {
+          return {
+            ...prev,
+            currentPiece: {
+              ...prev.currentPiece,
+              position: { ...prev.currentPiece.position, y: newY },
+            },
+          };
+        }
+
+        // Piece cannot move down, lock it to the board
+        const newBoard = mergePieceToBoard(prev.board, prev.currentPiece);
+        const { newBoard: clearedBoard, linesCleared } = clearLines(newBoard);
+        const newScore = prev.score + calculateScore(linesCleared);
+
+        // Check if game is over (piece locked at top)
+        const gameOver = prev.currentPiece.position.y <= 0;
+
+        return {
+          ...prev,
+          board: clearedBoard,
+          currentPiece: gameOver ? null : prev.nextPiece,
+          nextPiece: gameOver ? null : createRandomTetromino(),
+          score: newScore,
+          gameOver,
+        };
+      });
     }, GAME_SPEED);
 
     return () => clearInterval(intervalId);
-  }, [gameState.gameOver, gameState.isPaused, moveDown]);
+  }, [gameState.gameOver, gameState.isPaused]);
 
   // Keyboard controls
   useEffect(() => {
@@ -174,35 +211,35 @@ export function useTetris() {
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
-          moveLeft();
+          actionsRef.current.moveLeft();
           break;
         case 'ArrowRight':
           event.preventDefault();
-          moveRight();
+          actionsRef.current.moveRight();
           break;
         case 'ArrowDown':
           event.preventDefault();
-          moveDown();
+          actionsRef.current.moveDown();
           break;
         case 'ArrowUp':
           event.preventDefault();
-          rotate();
+          actionsRef.current.rotate();
           break;
         case ' ':
           event.preventDefault();
-          hardDrop();
+          actionsRef.current.hardDrop();
           break;
         case 'p':
         case 'P':
           event.preventDefault();
-          togglePause();
+          actionsRef.current.togglePause();
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameState.gameOver, moveLeft, moveRight, moveDown, rotate, hardDrop, togglePause]);
+  }, [gameState.gameOver]);
 
   return {
     gameState,
